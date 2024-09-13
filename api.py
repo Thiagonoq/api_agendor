@@ -1,15 +1,14 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Header, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from datetime import datetime
 
 import config
-from utils import agendor
-
+from utils.agendor import AgendorAPI  # Certifique-se de que o caminho está correto
 
 app = FastAPI(
-    # dependencies=[Depends(get_token_header)],
     responses={
         404: {"description": "Not found"},
         400: {"description": "Bad request"},
@@ -40,6 +39,8 @@ api_router = APIRouter(prefix='/api/agendor', tags=['agendor'], dependencies=[De
 contact_router = APIRouter(prefix='/contact', tags=['contact'])
 deal_router = APIRouter(prefix='/deal', tags=['deal'])
 
+agendor_api = AgendorAPI()
+
 class Contact(BaseModel):
     name: str
     phone: str
@@ -69,10 +70,10 @@ class Contact(BaseModel):
     city: Optional[int] = None
     leadOrigin: Optional[int] = None
     category: Optional[int] = None
-    products: Optional[list] = None
-    allowedUsers: Optional[list] = None
+    products: Optional[List[int]] = None
+    allowedUsers: Optional[List[int]] = None
     allowToAllUsers: Optional[bool] = None
-    customFields: Optional[dict] = None
+    customFields: Optional[Dict[str, any]] = None
 
 class ContactUpdate(BaseModel):
     person_id: int
@@ -104,44 +105,45 @@ class ContactUpdate(BaseModel):
     city: Optional[int] = None
     leadOrigin: Optional[int] = None
     category: Optional[int] = None
-    products: Optional[list] = None
-    allowedUsers: Optional[list] = None
+    products: Optional[List[int]] = None
+    allowedUsers: Optional[List[int]] = None
     allowToAllUsers: Optional[bool] = None
-    customFields: Optional[dict] = None
+    customFields: Optional[Dict[str, any]] = None
 
 class Deal(BaseModel):
-    person_id: int
-    person_name: str
+    entity_type: str = Field("people", const=True)
+    entity_id: int
+    title: str
     dealStatusText: Optional[str] = None
     description: Optional[str] = None
     endTime: Optional[str] = None
-    products_entities: Optional[list] = None
-    products: Optional[list] = None
+    products_entities: Optional[List[Dict[str, any]]] = None
+    products: Optional[List[str]] = None
     ranking: Optional[int] = None
     startTime: Optional[str] = None
-    ownerUser: Optional[str] = None
-    funnel: Optional[str] = None
-    dealStage: Optional[str] = None
-    value: Optional[int] = None
-    allowedUsers: Optional[list] = None
+    ownerUser: Optional[int] = None
+    funnel_id: Optional[int] = None
+    dealStage: Optional[int] = None
+    value: Optional[float] = None
+    allowedUsers: Optional[List[int]] = None
     allowToAllUsers: Optional[bool] = None
-    customFields: Optional[dict] = None
+    customFields: Optional[Dict[str, any]] = None
 
 class DealUpdate(BaseModel):
     deal_id: int
-    value: Optional[int] = None
+    value: Optional[float] = None
     description: Optional[str] = None
     startTime: Optional[str] = None
-    products_entities: Optional[list] = None
-    products: Optional[list] = None
+    products_entities: Optional[List[Dict[str, any]]] = None
+    products: Optional[List[str]] = None
     ownerUser: Optional[int] = None
-    allowedUsers: Optional[list] = None
+    allowedUsers: Optional[List[int]] = None
     allowToAllUsers: Optional[bool] = None
-    customFields: Optional[dict] = None
+    customFields: Optional[Dict[str, any]] = None
 
 class DealStageUpdate(BaseModel):
     deal_id: int
-    deal_stage: str
+    deal_stage: int  # Deve ser um inteiro
 
 class DealStatusUpdate(BaseModel):
     deal_id: int
@@ -149,47 +151,101 @@ class DealStatusUpdate(BaseModel):
 
 @contact_router.post("/create")
 def create_contact(contact: Contact):
-    contact_data = contact.model_dump(exclude_unset=True)
-    return agendor.create_new_person(**contact_data)
+    try:
+        # Obter o ID do responsável a partir do nome
+        responsible_id = agendor_api.get_responsible_id(contact.responsible)
+        if not responsible_id:
+            raise HTTPException(status_code=404, detail="Responsible not found")
+
+        contact_data = contact.dict(exclude_unset=True)
+        contact_data.pop("responsible")  # Remover o campo 'responsible' que não é usado diretamente
+
+        # Chamar o método da API
+        new_person = agendor_api.create_new_person(
+            name=contact.name,
+            phone=contact.phone,
+            responsible_id=responsible_id,
+            **contact_data
+        )
+        return new_person
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @contact_router.get("/find/{phone}")
 def find_contact(phone: str):
-    person = agendor.list_person(phone)
-    if not person:
-        raise HTTPException(status_code=404, detail="Contact not found")
-    return person
+    try:
+        # Usando o método list_person com filtro
+        persons = agendor_api.list_person(per_page=100, phone=phone)
+        if not persons:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        return persons
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@contact_router.put("/person")
+@contact_router.put("/update")
 def update_contact(contact_update: ContactUpdate):
-    update_data = contact_update.model_dump(exclude_unset=True)
-    person_id = update_data.pop("person_id")
-    return agendor.update_person(person_id, **update_data)
+    try:
+        update_data = contact_update.dict(exclude_unset=True)
+        person_id = update_data.pop("person_id")
+
+        updated_person = agendor_api.update_person(person_id, **update_data)
+        return updated_person
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @deal_router.post("/create-deal")
 def create_deal(deal: Deal):
-    deal_data = deal.model_dump(exclude_unset=True)
-    return agendor.create_new_deal(**deal_data)
+    try:
+        deal_data = deal.dict(exclude_unset=True)
+        new_deal = agendor_api.create_new_deal(**deal_data)
+        return new_deal
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@deal_router.get("/find-deal/{person_id}")
-def find_deal(person_id: int):
-    deal = agendor.list_deals(person_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail="Deal not found")
-    return deal
+@deal_router.get("/find-deal/{entity_type}/{entity_id}")
+def find_deal(entity_type: str, entity_id: int):
+    try:
+        if entity_type not in ["people", "organizations"]:
+            raise HTTPException(status_code=400, detail="Invalid entity_type. Must be 'people' or 'organizations'")
+        deals = agendor_api.list_deals(entity_type=entity_type, entity_id=entity_id)
+        if not deals:
+            raise HTTPException(status_code=404, detail="Deals not found")
+        return deals
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@deal_router.put("/deal")
+@deal_router.put("/update")
 def update_deal(deal_update: DealUpdate):
-    update_data = deal_update.model_dump(exclude_unset=True)
-    deal_id = update_data.pop("deal_id")
-    return agendor.update_deal(deal_id, **update_data)
+    try:
+        update_data = deal_update.dict(exclude_unset=True)
+        deal_id = update_data.pop("deal_id")
+
+        updated_deal = agendor_api.update_deal(deal_id, **update_data)
+        return updated_deal
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @deal_router.put("/stage")
 def update_deal_stage(deal_stage_update: DealStageUpdate):
-    return agendor.update_deal_stage(deal_stage_update.deal_id, deal_stage=deal_stage_update.deal_stage)
+    try:
+        updated_deal = agendor_api.update_deal_stage(
+            deal_id=deal_stage_update.deal_id,
+            deal_stage=deal_stage_update.deal_stage
+        )
+        return updated_deal
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @deal_router.put("/status")
 def update_deal_status(deal_status_update: DealStatusUpdate):
-    return agendor.update_deal_status(deal_status_update.deal_id, deal_status_text=deal_status_update.deal_status_text)
+    try:
+        updated_deal = agendor_api.update_deal_status(
+            deal_id=deal_status_update.deal_id,
+            deal_status_text=deal_status_update.deal_status_text
+        )
+        return updated_deal
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 api_router.include_router(contact_router)
 api_router.include_router(deal_router)
