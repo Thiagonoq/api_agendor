@@ -1,19 +1,18 @@
 from typing import Dict, Optional, List
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Header, Request, APIRouter
+from fastapi import Depends, FastAPI, HTTPException, Header, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 from datetime import datetime
-
 import config
-from utils.agendor import AgendorAPI  # Certifique-se de que o caminho está correto
+from utils import agendor
 
 app = FastAPI(
     responses={
         404: {"description": "Not found"},
         400: {"description": "Bad request"},
-        422: {"description": "Internal server error"},
-        405: {"description": "Not found"},
+        422: {"description": "Unprocessable entity"},
+        405: {"description": "Method not allowed"},
     },
     docs_url=None,
     redoc_url=None,
@@ -32,25 +31,25 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 def get_token_header(token: str = Header("", alias="VideoAI-Authorization")):
     if token != config.SERVICE_TOKEN:
         raise HTTPException(status_code=400, detail="Invalid token")
-
     return token
 
 api_router = APIRouter(prefix='/api/agendor', tags=['agendor'], dependencies=[Depends(get_token_header)])
 contact_router = APIRouter(prefix='/contact', tags=['contact'])
 deal_router = APIRouter(prefix='/deal', tags=['deal'])
 
-agendor_api = AgendorAPI()
+# Instanciação da API do Agendor
+agendor_api = agendor.AgendorAPI(token=config.AGENDOR_TOKEN)
 
 class Contact(BaseModel):
     name: str
     phone: str
-    responsible: str
+    responsible: str  # Nome do responsável
     cpf: Optional[str] = None
     organization: Optional[int] = None
     role: Optional[str] = None
     ranking: Optional[int] = None
     description: Optional[str] = None
-    birthday: Optional[str] = None
+    birthday: Optional[datetime] = None  # Alterado para datetime
     email: Optional[str] = None
     work: Optional[str] = None
     mobile: Optional[str] = None
@@ -83,7 +82,7 @@ class ContactUpdate(BaseModel):
     role: Optional[str] = None
     ranking: Optional[int] = None
     description: Optional[str] = None
-    birthday: Optional[str] = None
+    birthday: Optional[datetime] = None  # Alterado para datetime
     ownerUser: Optional[int] = None
     email: Optional[str] = None
     work: Optional[str] = None
@@ -111,16 +110,16 @@ class ContactUpdate(BaseModel):
     customFields: Optional[Dict[str, any]] = None
 
 class Deal(BaseModel):
-    entity_type: str = Field("people", const=True)
-    entity_id: int
+    entity_type: str = Field("people", const=True)  # Definido como "people"
+    entity_id: int  # ID da pessoa ou organização
     title: str
     dealStatusText: Optional[str] = None
     description: Optional[str] = None
-    endTime: Optional[str] = None
+    endTime: Optional[datetime] = None  # Alterado para datetime
     products_entities: Optional[List[Dict[str, any]]] = None
     products: Optional[List[str]] = None
     ranking: Optional[int] = None
-    startTime: Optional[str] = None
+    startTime: Optional[datetime] = None  # Alterado para datetime
     ownerUser: Optional[int] = None
     funnel_id: Optional[int] = None
     dealStage: Optional[int] = None
@@ -133,7 +132,7 @@ class DealUpdate(BaseModel):
     deal_id: int
     value: Optional[float] = None
     description: Optional[str] = None
-    startTime: Optional[str] = None
+    startTime: Optional[datetime] = None  # Alterado para datetime
     products_entities: Optional[List[Dict[str, any]]] = None
     products: Optional[List[str]] = None
     ownerUser: Optional[int] = None
@@ -157,7 +156,7 @@ def create_contact(contact: Contact):
         if not responsible_id:
             raise HTTPException(status_code=404, detail="Responsible not found")
 
-        contact_data = contact.dict(exclude_unset=True)
+        contact_data = contact.model_dump(exclude_unset=True)  # Usando model_dump()
         contact_data.pop("responsible")  # Remover o campo 'responsible' que não é usado diretamente
 
         # Chamar o método da API
@@ -185,7 +184,7 @@ def find_contact(phone: str):
 @contact_router.put("/update")
 def update_contact(contact_update: ContactUpdate):
     try:
-        update_data = contact_update.dict(exclude_unset=True)
+        update_data = contact_update.model_dump(exclude_unset=True)  # Usando model_dump()
         person_id = update_data.pop("person_id")
 
         updated_person = agendor_api.update_person(person_id, **update_data)
@@ -196,7 +195,7 @@ def update_contact(contact_update: ContactUpdate):
 @deal_router.post("/create-deal")
 def create_deal(deal: Deal):
     try:
-        deal_data = deal.dict(exclude_unset=True)
+        deal_data = deal.model_dump(exclude_unset=True)  # Usando model_dump()
         new_deal = agendor_api.create_new_deal(**deal_data)
         return new_deal
     except Exception as e:
@@ -217,7 +216,7 @@ def find_deal(entity_type: str, entity_id: int):
 @deal_router.put("/update")
 def update_deal(deal_update: DealUpdate):
     try:
-        update_data = deal_update.dict(exclude_unset=True)
+        update_data = deal_update.model_dump(exclude_unset=True)  # Usando model_dump()
         deal_id = update_data.pop("deal_id")
 
         updated_deal = agendor_api.update_deal(deal_id, **update_data)

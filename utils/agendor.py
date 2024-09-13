@@ -1,4 +1,3 @@
-import config
 import requests
 from typing import List, Dict, Any, Optional
 import logging
@@ -8,8 +7,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class AgendorApi:
-    def __init__(self):
-        token = config.AGENDOR_TOKEN
+    def __init__(self, token: Optional[str] = None):
         self.agendor_base_url = "https://api.agendor.com.br/v3/"
         self.session = requests.Session()
         self.session.headers.update({
