@@ -1,3 +1,4 @@
+import config
 import requests
 from typing import List, Dict, Any, Optional
 import logging
@@ -7,7 +8,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class AgendorApi:
-    def __init__(self, token: Optional[str] = None):
+    def __init__(self):
+        token = config.AGENDOR_TOKEN
         self.agendor_base_url = "https://api.agendor.com.br/v3/"
         self.session = requests.Session()
         self.session.headers.update({
@@ -33,10 +35,10 @@ class AgendorApi:
             response.raise_for_status()
 
         if not response.ok:
-            error_message = data.get("message", "Unknown error")
+            error_message = data.get("errors", "Unknown error")
             raise Exception(f"Error {response.status_code}: {error_message}")
 
-        return data.get("data", data)
+        return data
     
     # FUNNELS
     def list_funnels(self) -> list[Dict[str, Any]]:
@@ -1059,7 +1061,7 @@ class AgendorApi:
         description: Optional[str] = None,
         endTime: Optional[datetime] = None,
         products_entities: Optional[List[Dict[str, Any]]] = None,
-        products: Optional[List[str]] = None,
+        products: Optional[List[int]] = None,
         ranking: Optional[int] = None,
         startTime: Optional[datetime] = None,
         ownerUser: Optional[int] = None,
@@ -1081,7 +1083,7 @@ class AgendorApi:
             description (str, opcional): Descrição do negócio.
             endTime (datetime, opcional): Data de término do negócio.
             products_entities (List[Dict[str, Any]], opcional): Lista de produtos no negócio.
-            products (List[str], opcional): Lista de nomes de produtos.
+            products (List[int], opcional): Lista de IDs de produtos.
             ranking (int, opcional): Classificação do negócio (0 a 100).
             startTime (datetime, opcional): Data de início do negócio.
             ownerUser (int, opcional): ID do responsável pelo negócio.
@@ -1315,3 +1317,5 @@ class AgendorApi:
 
         endpoint = f"deals/{deal_id}/status"
         return self._request("PUT", endpoint, json=data)
+    
+agendor = AgendorApi()
